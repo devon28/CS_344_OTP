@@ -3,6 +3,7 @@
 // Date: 3/6/23
 // Course: CS_344
 // Assignment: OTP
+// Program: dec_server
 //#########################################################
 
 #include <stdio.h>
@@ -21,7 +22,7 @@ void error(const char *msg);
 
 void setupAddressStruct(struct sockaddr_in* address, int portNumber);
 
-char* decryption(char* msg, char *key); 
+char* decryption(char* msg, char *key);
 
 int main(int argc, char *argv[]){
   int connectionSocket, charsRead, charsSent;
@@ -50,7 +51,7 @@ int main(int argc, char *argv[]){
   listen(listenSocket, 5); 
   
   while(1){
-    char encTextMsg[MAX_BUFFER];
+    char plainTextMsg[MAX_BUFFER];
     char key[MAX_BUFFER];
 
     // accept connections
@@ -64,13 +65,25 @@ int main(int argc, char *argv[]){
 		}
 
     else if (pid == 0) {       // child process
+      // initial handshake dec_server may only connect with dec_client
+      memset(buffer, '\0', MAX_BUFFER);  
+      charsRead = recv(connectionSocket, buffer, MAX_BUFFER, 0); 
+			if (charsRead < 0) fprintf(stderr, "socket error");
+      if (strcmp(buffer, "dec_client") != 0) {  // make sure dec_client only connects to dec_server
+        close(connectionSocket); 
+        continue;
+        }
+
+      sleep(1);          // give client time to send new message
       long receivedSize;
       long keySize;
 
+      // receive size of file one
       memset(buffer, '\0', MAX_BUFFER);   // clear buffer
 			charsRead = recv(connectionSocket, buffer, MAX_BUFFER, 0); 
 			if (charsRead < 0) fprintf(stderr, "socket error");
-      charsSent = send(connectionSocket, "received", 8, 0); // Send confirmation
+      //send confirmation
+      charsSent = send(connectionSocket, "received", 8, 0); 
 			if (charsSent < 0) fprintf(stderr, "socket error");
 			receivedSize = atoi(buffer);     // message containing size of file one
 
@@ -79,8 +92,8 @@ int main(int argc, char *argv[]){
       charsRead = recv(connectionSocket, buffer, MAX_BUFFER, 0); 
       if (charsRead < 0) perror("error");
       receivedSize -= strlen(buffer);     // decriment total file size by bytes received
-      receivedSize --;
-      strcat(encTextMsg, buffer);       // file one is encrypted message
+      memset(plainTextMsg, '\0', MAX_BUFFER);     // clear plainTextMsg
+      strcat(plainTextMsg, buffer);
 
       // ensure full message recieved
       while (receivedSize > 0) {
@@ -88,12 +101,12 @@ int main(int argc, char *argv[]){
         charsRead = recv(connectionSocket, buffer, MAX_BUFFER, 0);
         if (charsRead < 0) perror("error");
         receivedSize -= strlen(buffer);
-        strcat(encTextMsg, buffer);
+        strcat(plainTextMsg, buffer);
         if (strlen(buffer) == 0) break;   // no more data to be read from socket
       }
 
-    // Send a Success message back to the client
-	  charsSent = send(connectionSocket, "Received", 8, 0); // Send confirmation
+    // Send confirmation to client
+	  charsSent = send(connectionSocket, "Received", 8, 0); 
 	  if (charsSent < 0) fprintf(stderr, "ERROR writing to socket");
 
     // receive size of file two, key
@@ -102,7 +115,7 @@ int main(int argc, char *argv[]){
 	  if (charsRead < 0) fprintf(stderr, "socket error");
 
     //send confirmation
-    charsSent = send(connectionSocket, "received", 8, 0); // Send success back
+    charsSent = send(connectionSocket, "received", 8, 0); 
 	  if (charsSent < 0) fprintf(stderr, "socket error");
 	  keySize = atoi(buffer);     // message containing size of key
 
@@ -111,6 +124,7 @@ int main(int argc, char *argv[]){
     charsRead = recv(connectionSocket, buffer, MAX_BUFFER, 0); 
     if (charsRead < 0) perror("error");
     keySize -= strlen(buffer);     // when keySize == 0 full message received
+    memset(key, '\0', MAX_BUFFER);     // clear key
     strcat(key, buffer);
 
     // ensure full file recieved
@@ -120,19 +134,21 @@ int main(int argc, char *argv[]){
       if (charsRead < 0) perror("error");
       keySize -= strlen(buffer);
       strcat(key, buffer);
-      if (strlen(buffer) == 0) break;
+      if (strlen(buffer) == 0) break;    // no more data to receive 
       }
 
-    // sned confirmation
+    // send confirmation
 	  charsSent = send(connectionSocket, "received", 8, 0); // confirmation
 	  if (charsSent < 0) fprintf(stderr, "ERROR writing to socket");
+    sleep(2);   // give client time to recieve confrimation before decrypted message
 
-    // sned encoded message
-	  charsSent = send(connectionSocket, decryption(encTextMsg, key), strlen(encTextMsg), 0); // Send success back
+    // send un-encoded message
+	  charsSent = send(connectionSocket, decryption(plainTextMsg, key), strlen(plainTextMsg), 0); // Send success back
 	  if (charsSent < 0) fprintf(stderr, "ERROR writing to socket");
 
-    free(decryptMessage);
+    free(decryptMessage);      // assigned in decryption()
     }
+
     // Close socket to client
     close(connectionSocket); 
   }
@@ -141,7 +157,7 @@ int main(int argc, char *argv[]){
   return EXIT_SUCCESS;
 }
 
-void error(const char *msg) {
+void error(const char *msg) {       // report errors
   perror(msg);
   exit(1);
 } 
@@ -163,7 +179,7 @@ char* decryption(char* encMsg, char *key) {     // decrypt message
 
 	char *decryptMessage = malloc (sizeof (char) * strlen(encMsg));
   char decMsg[strlen(encMsg)-1];
-	const char chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
+	const char chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";   // valid characters
 
 	for (int i = 0; i < strlen(encMsg)-1; ++i) {
     // 65 == A 90 == Z
@@ -171,13 +187,14 @@ char* decryption(char* encMsg, char *key) {     // decrypt message
 			fprintf(stderr, "error: input contains bad characters");
 			exit(1);
 		}
-    // -6 if space present -65 if no space present to avoid mapping issues, +27 to ensure value is posotive
+    // -6 if space present -65 if no space present to avoid colisions, +27 to ensure value is posotive
 		else if (encMsg[i] == ' ' && (key[i] == ' '))
 		  decMsg[i] = (chars[((((encMsg[i] - 6) - (key[i] - 6)) + 27) % 27)]);
 		else if (encMsg[i] == ' ' && key[i] != ' ') 
 		  decMsg[i] = (chars[((((encMsg[i] - 6) - (key[i] - 65)) + 27) % 27)]);
 		else if (key[i] == ' ' && encMsg[i] != ' ') 
 		  decMsg[i] = (chars[((((encMsg[i] - 65) - (key[i] - 6) + 27)) % 27)]);
+
     // treat key or text with spaces differently to avoid mapping issues
 		else decMsg[i] = (chars[((((encMsg[i] - 65) - (key[i] - 65) + 27)) % 27)]);
 	}

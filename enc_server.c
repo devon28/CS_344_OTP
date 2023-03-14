@@ -3,12 +3,13 @@
 // Date: 3/6/23
 // Course: CS_344
 // Assignment: OTP
+// Program: enc_server
 //#########################################################
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include <unistd.h>      
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -64,13 +65,26 @@ int main(int argc, char *argv[]){
 		}
 
     else if (pid == 0) {       // child process
+      // initial handshake verify client is enc_client
+      memset(buffer, '\0', MAX_BUFFER);   // clear buffer
+      charsRead = recv(connectionSocket, buffer, MAX_BUFFER, 0); 
+			if (charsRead < 0) fprintf(stderr, "socket error");
+      if (strcmp(buffer, "enc_client") != 0) {
+        fprintf(stderr,"ERROR: enc_server must only use enc_client\n");
+        close(connectionSocket); 
+        continue;
+      }
+      sleep(1);  // give client time to send next message
+
       long receivedSize;
       long keySize;
 
+      // receive size of file one
       memset(buffer, '\0', MAX_BUFFER);   // clear buffer
 			charsRead = recv(connectionSocket, buffer, MAX_BUFFER, 0); 
 			if (charsRead < 0) fprintf(stderr, "socket error");
-      charsSent = send(connectionSocket, "received", 8, 0); // Send confirmation
+      // Send confirmation
+      charsSent = send(connectionSocket, "received", 8, 0); 
 			if (charsSent < 0) fprintf(stderr, "socket error");
 			receivedSize = atoi(buffer);     // message containing size of file one
 
@@ -93,7 +107,7 @@ int main(int argc, char *argv[]){
         if (strlen(buffer) == 0) break;   // no more data to be read from socket
       }
 
-    // Send a Success message back to the client
+    // Send confirmation to client
 	  charsSent = send(connectionSocket, "Received", 8, 0); // Send confirmation
 	  if (charsSent < 0) fprintf(stderr, "ERROR writing to socket");
 
@@ -125,17 +139,17 @@ int main(int argc, char *argv[]){
       if (strlen(buffer) == 0) break;
       }
 
-    // sned confirmation
+    // send confirmation
 	  charsSent = send(connectionSocket, "received", 8, 0); // confirmation
 	  if (charsSent < 0) fprintf(stderr, "ERROR writing to socket");
-sleep(2);
-    // sned encoded message
+    sleep(2);  // give client time to read confirmation
+
+    // send encoded message
 	  charsSent = send(connectionSocket, encryption(plainTextMsg, key), strlen(plainTextMsg), 0); // Send success back
 	  if (charsSent < 0) fprintf(stderr, "ERROR writing to socket");
-    //fprintf(stderr, "\nchars written: %d", charsSent);
-
-    free(encryptMessage);
+    free(encryptMessage);     // assigned in encryption()
     }
+
     // Close socket to client
     close(connectionSocket); 
   }
@@ -144,7 +158,7 @@ sleep(2);
   return EXIT_SUCCESS;
 }
 
-void error(const char *msg) {
+void error(const char *msg) {  // print errors
   perror(msg);
   exit(1);
 } 
@@ -180,6 +194,7 @@ char* encryption(char* plainText, char *key) {    // encrypt data
 			encrypted[i] = (valid_chars[((plainText[i] - 6) + (key[i] - 65)) % 27]);
 		else if (key[i] == ' ')
 			encrypted[i] = (valid_chars[((plainText[i] - 65) + (key[i] - 6)) % 27]);
+      
     // must differentiate if key or message has a space to prevent mapping issues
 		else encrypted[i] = (valid_chars[((plainText[i] - 65) + (key[i] - 65)) % 27]);  // np spaces
 	}

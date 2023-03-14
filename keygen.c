@@ -3,6 +3,7 @@
 // Date: 3/6/23
 // Course: CS_344
 // Assignment: OTP
+// Program: keygen
 //#########################################################
 
 #include <stdio.h>
